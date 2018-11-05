@@ -3,7 +3,7 @@
     "description": "Simple implementation of Slim3 with Doctrine",
     "keywords": ["microframework", "slim3", "doctrine", "rest", "router", "psr7"],
     "homepage": "https://github.com/siworksit/slim3-doctrine.git",
-    "license": "Apache 2.0",
+    "license": "Apache-2.0",
     "authors": [
         {
             "name": "Rafael N. Garbinatto",

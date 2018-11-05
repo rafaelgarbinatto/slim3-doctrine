@@ -17,7 +17,7 @@ trait ObjectHelpers
      *
      * @return array
      */
-    public function toArray( $filterKeys = array(), $obj = null)
+    public function toArray( $filterKeys = array(), $obj = null, $level = 1, $position = 0)
     {
         $filters_default =  array('__cloner__', '__isInitialized__', '__initializer__');
         $filterKeys = array_merge ($filterKeys, $filters_default);
@@ -35,7 +35,12 @@ trait ObjectHelpers
             }
             else if(is_object($val))
             {
-                $arr[$key] = $this->toArray($filterKeys, $val);
+                if($level > $position){
+                    $arr[$key] = $this->toArray($filterKeys, $val, $level, $position+1);
+                }else{
+                    $arr[$key] = $this->getId();
+                }
+                
             }
 
             if(count($filterKeys) > 0)

@@ -80,13 +80,11 @@ Abstract class AbstractRestController
 
             $entityObject =  $this->modelEntity->create($data);
 
-            return $response->withJSON($entityObject->extractObject());
-
+            $data = $this->getPatternResponseRestFull("POST", $entityObject->extractObject(), $response);
+            return $response->withJSON($data);
         }
         catch (\Exception $e){
-            echo $e->getMessage(); exit;
-            //trato aqui
-            return $response->withJSON($entityObject->extractObject());
+            throw $e;
         }
 
     }
@@ -95,18 +93,24 @@ Abstract class AbstractRestController
     {
         try
         {
+            if ( ! is_array($args) && ( ! isset($args['id']) && is_numeric($args['id'])) )
+            {
+                throw new \InvalidArgumentException("Attribute 'id' is not exist or not numeric (ABSRESCT-4003exc)", 4003);
+            }
+
             $data = $request->getParsedBody();
 
-            if (count($files = $request->getUploadedFiles()) > 0) {
+            if (count($files = $request->getUploadedFiles()) > 0)
+            {
                 $data = array_merge($data, $files);
             }
 
-            $entityObject = $this->modelEntity->update($data);
-            return $response->withJSON($entityObject->extractObject());
-        } catch (\Exception $e) {
-            //trato aqui
+            $entityObject = $this->modelEntity->update($args['id'], $data);
+            $data = $this->getPatternResponseRestFull("PUT", $entityObject->extractObject(), $response);
+            return $response->withJSON($data);
 
-            return $response->withJSON($entityObject->extractObject());
+        } catch (\Exception $e) {
+            throw $e;
         }
     }
 
@@ -114,40 +118,49 @@ Abstract class AbstractRestController
     {
         try
         {
-            $entityObject =  $this->modelEntity->remove($request->getQueryParams());
-            return $response->withJSON($entityObject->extractObject());
+            if ( ! is_array($args) && ( ! isset($args['id']) && is_numeric($args['id'])) )
+            {
+                throw new \InvalidArgumentException("Attribute 'id' is not exist or not numeric (ABSRESCT-4004exc)", 4004);
+            }
 
+            $entityObject =  $this->modelEntity->remove($request->getQueryParams());
+            $data = $this->getPatternResponseRestFull("DELETE", $entityObject->extractObject(), $response);
+
+            return $response->withJSON($data);
         }
         catch (\Exception $e) {
-            //trato aqui
-
-            return $response->withJSON($entityObject->extractObject());
+            throw $e;
         }
     }
 
-    public function fetchAllAction(\Psr\Http\Message\ServerRequestInterface $request, \Psr\Http\Message\ResponseInterface $response, $args)
+    public function fetchAllAction(\Psr\Http\Message\ServerRequestInterface $request, \Psr\Http\Message\ResponseInterface $response)
     {
         try
         {
             $data = $this->fetchValidate($request->getQueryParams());
             $results =  $this->modelEntity->findAll($data);
+            $res ['data'] = [];
 
-            $res ['data']= [];
             if (count($results['data']) > 0)
             {
                 foreach ($results['data'] as $key => $obj)
                 {
                     $res['data'] [$key] = $obj->toArray();
-                    $res['data'] [$key] ['link']= $this->convertObjectToHateoas($obj);
+                    $res['data'] [$key] ['_links']= [
+                        "_self" => [
+                            "href"      => "{$request->getUri()->getPath()}/{$obj->getId()}",
+                            "method"    => "get"
+                        ]
+                    ];
                 }
             }
-            $res = $this->mountStructResponse($res, $data, $request);
+
+            $res['count'] = $results['count'];
+            $res = $this->mountListResponse($res, $data, $request);
             return $response->withJSON($res);
         }
         catch (\Exception $e) {
-            //trato aqui
-
-            return $response->withJSON($entityObject->extractObject());
+            throw $e;
         }
     }
 
@@ -156,13 +169,27 @@ Abstract class AbstractRestController
      */
     public function fetchAction(\Psr\Http\Message\ServerRequestInterface $request, \Psr\Http\Message\ResponseInterface $response, $args)
     {
-        $this->fetchValidate($args);
-        $entity = $this->modelEntity->findOne(['id' => $args]);
-        if ($entity)
-        {
-            $res = $this->convertObjectToHateoas($obj);
-            return $response->withJSON(get_object_vars($entity));
+        try{
+            if ( ! is_array($args) && ( ! isset($args['id']) && is_numeric($args['id'])) )
+            {
+                throw new \InvalidArgumentException("Attribute 'id' is not exist or not numeric (ABSRESCT-4003exc)", 4003);
+            }
+
+            $obj = $this->modelEntity->findOne($args['id']);
+
+            if ($obj)
+            {
+                $res = $this->convertObjectToHateoas($obj, $request);
+                return $response->withJSON($res);
+            }
         }
+        catch(\InvalidArgumentException $e){
+            throw $e;
+        }
+        catch(\Exception $e){
+            throw $e;
+        }
+
     }
 
     public function fetchValidate(Array $data)
@@ -174,12 +201,12 @@ Abstract class AbstractRestController
 
         if (isset($data['filters']) && ! is_array($data['filters']) )
         {
-            throw new \InvalidArgumentException("Attribute 'filters' is not array (ABSRESCT-04001exc)", 04001);
+            throw new \InvalidArgumentException("Attribute 'filters' is not array (ABSRESCT-4001exc)", 4001);
         }
 
         if ( isset($data['order']) && count(array_intersect(array('asc','desc'), array_values($data['order']))) != 0 )
         {
-            throw new \InvalidArgumentException("value 'orders' is invalid required [asc, desc] (ABSRESCT-04002exc)", 04002);
+            throw new \InvalidArgumentException("value 'orders' is invalid required [asc, desc] (ABSRESCT-4002exc)", 4002);
         }
 
         unset($data['access_token']);
@@ -192,72 +219,91 @@ Abstract class AbstractRestController
         switch ($action)
         {
             case "POST":
-                    $response->withStatus(201, "Created");
-                    $jsonResp = [
-                        "code"    => 201,
-                        "message" => "created",
-                        "data"    => $data,
-                    ];
+                $response->withStatus(201, "Created");
+                $arrResp = [
+                    "code"    => 201,
+                    "status" => "ok",
+                    "data"    => $data,
+                ];
                 break;
             case "PUT":
             case "PATCH":
-                    $response->withStatus(200, "Ok");
-                    $jsonResp = [
-                        "code"    => 200,
-                        "message" => "ok",
-                        "data"    => $data,
-                    ];
+                $response->withStatus(200, "Ok");
+                $arrResp = [
+                    "code"    => 200,
+                    "status" => "ok",
+                    "data"    => $data,
+                ];
                 break;
             case "DELETE":
-                    $response->withStatus(204, "Ok");
-                    $jsonResp = [
-                        "code"    => 204,
-                        "message" => "ok",
-                        "data"    => $data,
-                    ];
+                $response->withStatus(204, "Ok");
+                $arrResp = [
+                    "code"    => 204,
+                    "status" => "ok",
+                    "data"    => $data,
+                ];
                 break;
         }
+        return $arrResp;
     }
 
-    public function mountStructResponse(array $res, array $data, \Psr\Http\Message\ServerRequestInterface $request) : array
+    public function mountListResponse(array $res, array $data, \Psr\Http\Message\ServerRequestInterface $request) : array
     {
+        $data["status"] = "ok";
         $previousOffset = $data['offset'] - $data['limit'];
         $previousOffset = ( $previousOffset <= 0 ) ? 0 : $previousOffset;
-
         $nextOffset = $data['offset'] + $data['limit'];
 
         $uri = $request->getUri()->getPath();
 
-        if(count($filters))
-        {
-            $filters = implode(',', $data['filters']);
-            $filters = "filters={$filters}&";
-        }
+        $filters = $this->implodeQueryParams('filters', $data['filters']);
+        $order = $this->implodeQueryParams('order', $data['order']);
 
+        //$res['current_page'] = ceil($data['offset']%$data['limit'])+1;
+        //$res['total_pages'] = ceil($res['count']/$data['limit']);
         $res['_links'] = [
             'previous' => [
-                "href"      => "{$uri}?{$filters}offset={$previousOffset}&limit={$data['limit']}&order={$data['order']}",
+                "href"      => "{$uri}?{$filters}{$order}offset={$previousOffset}&limit={$data['limit']}",
             ],
             'next' => [
-                "href"      => "{$uri}?{$filters}offset={$nextOffset}&limit={$data['limit']}&order={$data['order']}",
+                "href"      => "{$uri}?{$filters}{$order}offset={$nextOffset}&limit={$data['limit']}",
             ]
         ];
-
-        $res['total'] = count($res['data']);
 
         return $res;
     }
 
-    public function convertObjectToHateoas($obj)
+    public function implodeQueryParams($param, $value)
+    {
+        if(count($value))
+        {
+            $res = array();
+            foreach($value as $key => $v)
+            {
+                $res .= "{$param}[{$key}]={$v}&";
+            }
+            return $res;
+        }
+        return NUll;
+    }
+
+    public function convertObjectToHateoas($obj, \Psr\Http\Message\ServerRequestInterface $request)
     {
         $class_name = get_class($obj);
         $arr = $obj->extractObject();
-        $arr["link"] ['_self']= [
-            [
+
+        $arr["_links"] = [
+            "update" => [
                 "rel"       => "self",
-                "href"      => "/{$class_name}/{$obj->getId()}",
-                "method"    => "get"
+                "href"      => "{$request->getUri()->getPath()}",
+                "method"    => "put"
             ],
+            "remove" => [
+                "rel"       => "self",
+                "href"      => "{$request->getUri()->getPath()}",
+                "method"    => "delete"
+            ]
         ];
+        return $arr;
     }
 }

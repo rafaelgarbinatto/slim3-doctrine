@@ -13,7 +13,9 @@ interface IModel
 {
     public function create( Array $data );
 
-    public function update( Array $data );
+    public function update($args, Array $data );
+
+    public function findOne( $args );
 
     public function findAll( Array $data );
 
@@ -25,6 +27,5 @@ interface IModel
      *
      * @return Entity
      */
-     function populateObject($obj);
-
+    function populateObject($obj);
 }
